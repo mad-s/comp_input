@@ -7,12 +7,12 @@
 //! sets up the global stdin lock used.
 //!
 //! # Example
-//! ```rust
-//! extern crate soi_io;
-//! use soi_io::input;
+//! ```rust,no_run
+//! extern crate comp_input;
+//! use comp_input::input;
 //!
 //! fn main() {
-//!     soi_io::init();
+//!     comp_input::init();
 //!
 //!     let line1 : String = input();
 //!     let line2 : Vec<u8> = input();
