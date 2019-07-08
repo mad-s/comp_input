@@ -1,6 +1,6 @@
 [package]
 name = "comp_input"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Matteo Signer <matteo.signer@gmail.com>"]
 description = "Input library for competitive programming"
 license = "MIT/Apache-2.0"

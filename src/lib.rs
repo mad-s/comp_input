@@ -62,10 +62,39 @@ macro_rules! from_ascii_int_impl {
     }
 }
 
-from_ascii_int_impl! {
-    u8 u16 u32 u64 usize
-    i8 i16 i32 i64 isize
+macro_rules! from_ascii_uint_impl {
+    ($($t:ty)*) => {
+        $(
+            impl FromAscii for $t {
+                #[inline]
+                fn from_ascii(src: &[u8]) -> Option<$t> {
+                    if src.is_empty() {
+                        return None
+                    }
+
+                    let (sign, digits) = if src[0] == b'+' || src[0] == b'-' {
+                        if src.len() == 1 {
+                            return None
+                        }
+                        (src[0] == b'-', &src[1..])
+                    } else {
+                        (false, src)
+                    };
+
+                    let mut res : $t = 0;
+                    for &c in digits {
+                        let x = (c as char).to_digit(10)? as $t;
+                        res = res.wrapping_mul(10).wrapping_add(x);
+                    }
+
+                    Some(res)
+                }
+            }
+        )*
+    }
 }
+from_ascii_uint_impl! { u8 u16 u32 u64 usize }
+from_ascii_int_impl!  { i8 i16 i32 i64 isize }
 
 impl FromAscii for char {
     #[inline]
