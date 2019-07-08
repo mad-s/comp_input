@@ -1,168 +1,240 @@
 //! Input library for competitive programming.
 //!
-//! Built for speed and to be callable in a concise manner, so no
-//! good error handling (just panics) or thread safety.
-//!
-//! You need to call `init()` before trying to read anything, this
-//! sets up the global stdin lock used.
-//!
-//! # Example
+//! # Example: reading a graph given as an edge list
 //! ```rust,no_run
+//! #[macro_use]
 //! extern crate comp_input;
-//! use comp_input::input;
 //!
 //! fn main() {
-//!     comp_input::init();
-//!
-//!     let line1 : String = input();
-//!     let line2 : Vec<u8> = input();
-//!     let line3 : (char, f64) = input();
-//!     println!("{:?} {:?} {:?}", line1, line2, line3);
+//!     input! {
+//!         n, m: usize,
+//!         edges: [(usize1, usize1); m],
+//!     }
 //! }
 //! ```
 
 use std::str::FromStr;
+use std::io::BufRead;
 
-static mut GLOBAL_STDIN : Option<std::io::Stdin>     = None;
-static mut GLOBAL_LOCK  : Option<std::io::StdinLock> = None;
+extern crate memchr;
+use memchr::{memchr, memchr2, memchr3};
 
-/// The input trait allows for being read from standard input, usually consuming one line.
-///
-/// For performance reasons, a global lock on Stdin is used, so you
-/// can only use this after calling `init()` and only on a single
-/// thread.
-pub trait Input : Sized {
-    /// Read one instance of `Self` from standard input
-    fn input() -> Self;
-}
-
-/// Read a line, not including a newline character
-impl Input for String {
-    fn input() -> String {
-        let mut line = String::new();
-        use std::io::BufRead;
-        unsafe {
-            GLOBAL_LOCK.as_mut().unwrap().read_line(&mut line).unwrap();
+trait BufReadExt : BufRead {
+    #[inline]
+    fn fill_buf_nonempty(&mut self) -> ::std::io::Result<&[u8]> {
+        let buf = self.fill_buf()?;
+        if !buf.is_empty() {
+            Ok(buf)
+        } else {
+            Err(::std::io::ErrorKind::UnexpectedEof.into())
         }
-        if line.ends_with('\n') {
-            line.pop();
-        }
-        line
     }
 }
 
-/// Discard a line
-impl Input for () {
-    fn input() -> Self {
-        drop(String::input());
-    }
+impl<R: BufRead> BufReadExt for R {}
+
+pub trait FromAscii : Sized {
+    fn from_ascii(src: &[u8]) -> Option<Self>;
 }
 
-macro_rules! primitive_impls {
-    ($($T:ty)*) => {
+macro_rules! from_ascii_int_impl {
+    ($($t:ty)*) => {
         $(
-            impl Input for $T {
-                fn input() -> Self {
-                    let line = String::input();
-                    Self::from_str(line.trim_right()).unwrap()
+            impl FromAscii for $t {
+                #[inline]
+                fn from_ascii(src: &[u8]) -> Option<$t> {
+                    if src.is_empty() {
+                        return None
+                    }
+
+                    let digits = src;
+
+                    let mut res : $t = 0;
+                    for &c in digits {
+                        let x = (c as char).to_digit(10)? as $t;
+                        res = res.wrapping_mul(10).wrapping_add(x);
+                    }
+
+                    Some(res)
                 }
             }
         )*
     }
 }
-primitive_impls! {
-    u8 i8
-    u16 i16
-    u32 i32
-    u64 i64
-    usize isize
-    f32 f64
-    char
+
+from_ascii_int_impl! {
+    u8 u16 u32 u64 usize
+    i8 i16 i32 i64 isize
 }
 
-/// Input is implemented for fixed-sized arrays and `Vec`'s of types
-/// implementing FromStr. The input line is split on whitespace and
-/// each word is parsed seperately.
-impl<T: FromStr> Input for Vec<T> {
-    fn input() -> Self {
-        let line = String::input();
-        line.split_whitespace()
-            .map(|word| T::from_str(word).ok().unwrap())
-            .collect::<Vec<T>>()
+impl FromAscii for char {
+    #[inline]
+    fn from_ascii(src: &[u8]) -> Option<char> {
+        if src.len() != 1 {
+            return None
+        }
+        Some(src[0] as char)
     }
 }
 
-macro_rules! array_impls {
-    ($len:expr; $($idx:expr)*) => {
-        impl <T: FromStr> Input for [T; $len] {
-            fn input() -> Self {
-                let line = String::input();
-                let words = line.split_whitespace().collect::<Vec<&str>>();
-                assert_eq!(words.len(), $len, "Expected {} values but got {}", $len, words.len());
-                [
-                    $(T::from_str(words[$idx]).ok().unwrap()),*
-                ]
+impl FromAscii for String {
+    #[inline]
+    fn from_ascii(src: &[u8]) -> Option<String> {
+        Some(std::str::from_utf8(src).ok()?.to_owned())
+    }
+}
+
+
+pub struct FormattedRead<R: BufRead> {
+    r: R,
+    buf: Vec<u8>,
+}
+
+fn consume_ws<R: BufRead>(r: &mut R) -> std::io::Result<()> {
+    loop {
+        let buf = r.fill_buf_nonempty()?;
+        if let Some(ix) = buf.iter().position(|&c| !c.is_ascii_whitespace()) {
+            r.consume(ix);
+            return Ok(());
+        } else {
+            let consume = buf.len();
+            r.consume(consume);
+        }
+    }
+}
+
+impl<R: BufRead> FormattedRead<R> {
+    pub fn new(r: R) -> Self {
+        FormattedRead {
+            r,
+            buf: vec![]
+        }
+    }
+
+    pub fn read_word<T: FromAscii>(&mut self) -> std::io::Result<T> {
+        consume_ws(&mut self.r)?;
+        let buf = self.r.fill_buf_nonempty()?;
+        let split_ix = buf.iter().position(u8::is_ascii_whitespace);
+        if let Some(ix) = split_ix {
+            let res = T::from_ascii(&buf[..ix]).ok_or(std::io::ErrorKind::InvalidData)?;
+            self.r.consume(ix+1);
+            return Ok(res);
+        }
+
+        self.buf.clear();
+        self.buf.extend_from_slice(buf);
+        let l = buf.len();
+        self.r.consume(l);
+
+        loop {
+            let buf = self.r.fill_buf_nonempty()?;
+            if let Some(ix) = buf.iter().position(u8::is_ascii_whitespace) {
+                self.buf.extend_from_slice(&buf[..ix]);
+                let res = T::from_ascii(&self.buf).ok_or(std::io::ErrorKind::InvalidData)?;
+                self.r.consume(ix+1); // maybe more?
+                return Ok(res);
+            } else {
+                self.buf.extend_from_slice(&buf);
+                let l = buf.len();
+                self.r.consume(l);
+            }
+        }
+    }
+
+    pub fn read_line<T: FromStr>(&mut self) -> std::io::Result<T> {
+        let buf = self.r.fill_buf_nonempty()?;
+        if let Some(ix) = memchr(b'\n', buf) {
+            // CR-LF
+            let split = ix.checked_sub(1).filter(|&i| buf[i] == b'\r').unwrap_or(ix);
+            let res = std::str::from_utf8(&buf[..split]).map_err(|_| std::io::ErrorKind::InvalidData)?;
+            let res = res.parse().map_err(|_| std::io::ErrorKind::InvalidData)?;
+            self.r.consume(ix+1); // maybe more?
+            return Ok(res);
+        }
+        self.buf.clear();
+        self.buf.extend_from_slice(buf);
+        let l = buf.len();
+        self.r.consume(l);
+
+        loop {
+            let buf = self.r.fill_buf_nonempty()?;
+            if let Some(ix) = memchr(b'\n', buf) {
+                self.buf.extend_from_slice(&buf[..ix]);
+                if self.buf[self.buf.len()-1] == b'\r' {
+                    self.buf.pop();
+                }
+
+                let res = std::str::from_utf8(&self.buf).map_err(|_| std::io::ErrorKind::InvalidData)?;
+                let res = res.parse().map_err(|_| std::io::ErrorKind::InvalidData)?;
+                self.r.consume(ix+1); // maybe more?
+                return Ok(res);
+            } else {
+                self.buf.extend_from_slice(&buf);
+                let l = buf.len();
+                self.r.consume(l);
             }
         }
     }
 }
 
-array_impls!(2;  0 1);
-array_impls!(3;  0 1 2);
-array_impls!(4;  0 1 2 3);
-array_impls!(5;  0 1 2 3 4);
-array_impls!(6;  0 1 2 3 4 5);
-array_impls!(7;  0 1 2 3 4 5 6);
-array_impls!(8;  0 1 2 3 4 5 6 7);
-array_impls!(9;  0 1 2 3 4 5 6 7 8);
-array_impls!(10; 0 1 2 3 4 5 6 7 8 9);
-array_impls!(11; 0 1 2 3 4 5 6 7 8 9 10);
-array_impls!(12; 0 1 2 3 4 5 6 7 8 9 10 11);
-array_impls!(13; 0 1 2 3 4 5 6 7 8 9 10 11 12);
-array_impls!(14; 0 1 2 3 4 5 6 7 8 9 10 11 12 13);
-array_impls!(15; 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14);
-array_impls!(16; 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15);
+#[macro_export]
+macro_rules! input {
+    ($r:ident => $($($v:ident),* : $t:tt),*) => {
+        $(
+            $(
+                let $v = read_one!($r => $t);
+            )*
+        )*
+    };
+    ($($($v:ident),* : $t:tt),*) => {
+        let input__stdin = ::std::io::stdin();
+        let mut input__reader = $crate::FormattedRead::new(input__stdin.lock());
+        input!(input__reader => $($($v),* : $t),*);
+        drop(input__reader);
+    };
+}
 
-macro_rules! tuple_impls {
-    ($len:expr; $($idx:tt $T:ident)*) => {
-        impl<$($T : FromStr),+> Input for ($($T,)*) {
-            fn input() -> Self {
-                let line = String::input();
-                let words = line.split_whitespace().collect::<Vec<&str>>();
-                assert_eq!(words.len(), $len, "Expected {} values but got {}", $len, words.len());
-                (
-                    $($T::from_str(words[$idx]).ok().unwrap(),)*
-                )
+#[macro_export]
+macro_rules! read_one {
+    ($r:ident => [$t:tt; const $s:tt]) => {
+        {
+            let mut res = <[$t; $s]>::default();
+            for i in 0..$s {
+                res[i] = read_one!($r => $t);
             }
+            res
         }
+    };
+    ($r:ident => [$t:tt; $s:tt]) => {
+        (0..$s).map(|_| read_one!($r => $t)).collect::<Vec<_>>()
+    };
+    ($r:ident => ($($t:tt),*)) => {
+        ($(
+            read_one!($r => $t),
+        )*)
+    };
+    ($r:ident => usize1) => {
+        read_one!($r => usize) - 1
+    };
+    ($r:ident => {$r2:ident => $($t:tt)*}) => {
+        {
+            let $r2 = &mut $r;
+            $($t)*
+        }
+    };
+    ($r:ident => line) => {
+        $r.read_line::<String>().unwrap()
+    };
+    ($r:ident => $t:ty) => {
+        $r.read_word::<$t>().unwrap()
+    };
+}
+
+
+/*
+fn testc() {
+    input! {
+        a: (usize1, usize1)
     }
 }
-
-tuple_impls!(1;  0 T0);
-tuple_impls!(2;  0 T0 1 T1);
-tuple_impls!(3;  0 T0 1 T1 2 T2);
-tuple_impls!(4;  0 T0 1 T1 2 T2 3 T3);
-tuple_impls!(5;  0 T0 1 T1 2 T2 3 T3 4 T4);
-tuple_impls!(6;  0 T0 1 T1 2 T2 3 T3 4 T4 5 T5);
-tuple_impls!(7;  0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6);
-tuple_impls!(8;  0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7);
-tuple_impls!(9;  0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7 8 T8);
-tuple_impls!(10; 0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7 8 T8 9 T9);
-
-
-
-
-/// Initialize the global stdin lock, required before calling `input()`.
-pub fn init() {
-    unsafe {
-        GLOBAL_STDIN = Some(std::io::stdin());
-        GLOBAL_LOCK  = Some(GLOBAL_STDIN.as_ref().unwrap().lock());
-    }
-}
-
-/// Read an instance of T from the next line of stdin.
-///
-/// A call to `init()` is required before using this.
-pub fn input<T: Input>() -> T {
-    T::input()
-}
+*/

@@ -5,25 +5,40 @@
 
 Input library for competitive programming.
 
-Built for speed and to be callable in a concise manner, so no
-good error handling (just panics) or thread safety.
-
-You need to call `init()` before trying to read anything, this
-sets up the global stdin lock used.
-
-## Example
-```rust
+## Example: weighted graph as edge list
+```rust,no_run
+#[macro_use]
 extern crate comp_input;
-use comp_input::input;
 
 fn main() {
-    comp_input::init();
-
-    let line1 : String = input();
-    let line2 : Vec<u8> = input();
-    let line3 : (char, f64) = input();
-    println!("{:?} {:?} {:?}", line1, line2, line3);
+    input! {
+        n, m: usize,
+        edges: [(usize1, usize1, u64); m],
+    }
 }
 ```
 
-License: MIT/Apache-2.0
+The variables `n`, `m` and `edges` then exist as local variables in scope.
+
+# List of input fragments
+
+| Fragment | Description |
+|----------|-------------|
+| `u8, u16, u32, u64, usize` | Unsigned integer (base 10) |
+| `i8, i16, i32, i64, isize` | Signed integer (base 10, optional +/- prefix) |
+| `usize1` | Like `usize`, but subtract 1 from the result (useful for 1-based input formats) |
+| `char` | A single character |
+| `String` | A sequence of non-ASCII-whitespace characters |
+| `(T1, T2), (T1, T2, T3), ...` | Heterogeneous tuple of other input fragments, read in order |
+| `[<T>; <n: expr>]` | `n` items parsed against `T`, returned as `Vec` |
+| `[<T>; const <n>]` | `n` items parsed against `T`, in an array. `n` must be compile-time constant |
+
+# TODO
+
+ - Allow arbitrary parse functions
+ - Branching
+ - Loops (e.g. parse until -1)
+
+# License
+
+MIT/Apache-2.0
