@@ -8,7 +8,7 @@
 //! fn main() {
 //!     input! {
 //!         n, m: usize,
-//!         edges: [(usize1, usize1); m],
+//!         edges: [(usize1, usize1); m]
 //!     }
 //! }
 //! ```
@@ -17,7 +17,7 @@ use std::str::FromStr;
 use std::io::BufRead;
 
 extern crate memchr;
-use memchr::{memchr, memchr2, memchr3};
+use memchr::{memchr};
 
 trait BufReadExt : BufRead {
     #[inline]
@@ -47,7 +47,14 @@ macro_rules! from_ascii_int_impl {
                         return None
                     }
 
-                    let digits = src;
+                    let (sign, digits) = if src[0] == b'+' || src[0] == b'-' {
+                        if src.len() == 1 {
+                            return None
+                        }
+                        (src[0] == b'-', &src[1..])
+                    } else {
+                        (false, src)
+                    };
 
                     let mut res : $t = 0;
                     for &c in digits {
@@ -55,7 +62,11 @@ macro_rules! from_ascii_int_impl {
                         res = res.wrapping_mul(10).wrapping_add(x);
                     }
 
-                    Some(res)
+                    if sign {
+                        Some(-res)
+                    } else {
+                        Some(res)
+                    }
                 }
             }
         )*
@@ -72,14 +83,7 @@ macro_rules! from_ascii_uint_impl {
                         return None
                     }
 
-                    let (sign, digits) = if src[0] == b'+' || src[0] == b'-' {
-                        if src.len() == 1 {
-                            return None
-                        }
-                        (src[0] == b'-', &src[1..])
-                    } else {
-                        (false, src)
-                    };
+                    let digits = src;
 
                     let mut res : $t = 0;
                     for &c in digits {
@@ -171,6 +175,7 @@ impl<R: BufRead> FormattedRead<R> {
     }
 
     pub fn read_line<T: FromStr>(&mut self) -> std::io::Result<T> {
+        consume_ws(&mut self.r)?;
         let buf = self.r.fill_buf_nonempty()?;
         if let Some(ix) = memchr(b'\n', buf) {
             // CR-LF
@@ -252,18 +257,48 @@ macro_rules! read_one {
         }
     };
     ($r:ident => line) => {
-        $r.read_line::<String>().unwrap()
+        $r.read_line::<String>().expect("failed to read line")
     };
     ($r:ident => $t:ty) => {
-        $r.read_word::<$t>().unwrap()
+        $r.read_word::<$t>().expect(concat!("failed to read ", stringify!($t)))
     };
 }
 
 
-/*
-fn testc() {
+#[test]
+fn test_graph() {
+    let input = b"3 4\n1 2\n1 3\n2 3\n2 1\n";
+    let mut reader = FormattedRead::new(std::io::Cursor::new(&input[..]));
+
     input! {
-        a: (usize1, usize1)
+        reader =>
+            n, m: usize,
+            edges: [(usize1, usize1); m]
     }
+
+    assert_eq!(n, 3);
+    assert_eq!(m, 4);
+    assert_eq!(edges, vec![(0, 1), (0, 2), (1, 2), (1, 0)]);
 }
-*/
+
+#[test]
+fn test_crlf() {
+    let input = b"3 b\r\nHello World!\r\n-2 -1 0\r\nFino.\r\n";
+    let mut reader = FormattedRead::new(std::io::Cursor::new(&input[..]));
+
+    input! {
+        reader =>
+            a: u32,
+            b: char,
+            c: line,
+            d: [i8; const 3],
+            e: String
+    }
+
+    assert_eq!(a, 3);
+    assert_eq!(b, 'b');
+    assert_eq!(c, "Hello World!");
+    assert_eq!(d, [-2, -1, 0]);
+    assert_eq!(e, "Fino.");
+
+}
